@@ -1,12 +1,9 @@
 
 import os
 import math
-import random
-from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
 st.set_page_config(
@@ -16,14 +13,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# -----------------------------
-# Mobile-first CSS
-# -----------------------------
 st.markdown(
     """
     <style>
     :root {
-        --card-bg: rgba(255, 255, 255, 0.82);
+        --card-bg: rgba(255, 255, 255, 0.84);
         --ink: #352f44;
         --muted: #6c6478;
         --accent: #ff8fab;
@@ -75,6 +69,16 @@ st.markdown(
         color: #594d66;
         font-size: .88rem;
     }
+    .note-box {
+        background: rgba(255,255,255,.75);
+        border: 1px dashed rgba(255, 143, 171, .48);
+        border-radius: 18px;
+        color: #6a5e77;
+        padding: .85rem .95rem;
+        line-height: 1.7;
+        margin: .7rem 0 1rem 0;
+        font-size: .96rem;
+    }
     .section-card {
         background: var(--card-bg);
         border: 1px solid var(--line);
@@ -125,14 +129,25 @@ st.markdown(
     .rank-title { font-weight: 850; color: #2f2639; font-size: 1.05rem; }
     .rank-meta { color: #746980; font-size: .9rem; margin: .18rem 0 .35rem 0; }
     .rank-snark { color: #5f536d; line-height: 1.55; }
+    .persona-card {
+        background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(245,251,255,0.92));
+        border: 1px solid rgba(142, 202, 230, .30);
+        border-radius: 22px;
+        padding: 1rem;
+        min-height: 190px;
+        box-shadow: 0 10px 26px rgba(142, 202, 230, 0.12);
+    }
+    .persona-name { font-size: 1.25rem; font-weight: 900; color: #2f2639; margin-bottom: .35rem; }
+    .persona-tag { display: inline-block; padding: .26rem .62rem; border-radius: 999px; background: #fff1f5; color: #7a4052; font-size: .85rem; margin-bottom: .65rem; }
+    .persona-text { color: #5f536d; line-height: 1.7; }
     .final-card {
-        padding: 1.2rem;
+        padding: 1.25rem;
         border-radius: 26px;
         background: linear-gradient(135deg, #fff1f5 0%, #e8f8ff 100%);
         border: 1px solid rgba(255, 143, 171, .30);
         box-shadow: 0 18px 44px rgba(255, 143, 171, 0.15);
-        line-height: 1.85;
-        font-size: 1.02rem;
+        line-height: 1.9;
+        font-size: 1.04rem;
     }
     div[data-testid="stMetricValue"] { font-size: 1.8rem; }
     .stSelectbox, .stMultiSelect, .stSlider { background: transparent; }
@@ -152,7 +167,12 @@ DATA_FILE = "interaction_data.xlsx"
 
 @st.cache_data
 def load_data():
-    path_candidates = [DATA_FILE, os.path.join(os.path.dirname(__file__), DATA_FILE), "/mnt/data/interaction_data(1).xlsx", "/mnt/data/interaction_data.xlsx"]
+    path_candidates = [
+        DATA_FILE,
+        os.path.join(os.path.dirname(__file__), DATA_FILE),
+        "/mnt/data/interaction_data(1).xlsx",
+        "/mnt/data/interaction_data.xlsx",
+    ]
     path = next((p for p in path_candidates if os.path.exists(p)), None)
     if path is None:
         st.error("找不到 interaction_data.xlsx。请把 Excel 文件和 app.py 放在同一个文件夹里。")
@@ -170,29 +190,33 @@ def load_data():
     df["End_dt"] = pd.to_datetime("2026/" + df["Date"].astype(str) + " " + df["End_Time"].astype(str), errors="coerce")
     df["Actual_dt"] = pd.to_datetime("2026/" + df["Date"].astype(str) + " " + df["Actual_Time"].astype(str), errors="coerce")
 
-    # If actual time crosses midnight, push by one day. Rare, but safe.
     mask = df["Actual_dt"] < df["Start_dt"]
     df.loc[mask, "Actual_dt"] = df.loc[mask, "Actual_dt"] + pd.Timedelta(days=1)
 
-    df["Activity_Duration_min"] = ((df["End_dt"] - df["Start_dt"]).dt.total_seconds() / 60).round(0)
     df["Expected_dt"] = df["Actual_dt"] - pd.to_timedelta(df["Waiting_Time_min"], unit="m")
     df["Expected_Time"] = df["Expected_dt"].dt.strftime("%H:%M")
     df["Start_Hour"] = df["Start_dt"].dt.hour + df["Start_dt"].dt.minute / 60
 
     def time_slot(h):
-        if pd.isna(h): return "未知"
-        if h < 14: return "午场"
-        if h < 17: return "下午场"
+        if pd.isna(h):
+            return "未知"
+        if h < 14:
+            return "午场"
+        if h < 17:
+            return "下午场"
         return "晚场"
 
-    def delay_level(x):
-        if x <= 0.5: return "正常区"
-        if x <= 1: return "微崩区"
-        if x <= 2: return "中崩区"
-        return "大崩区"
+    def wait_level(x):
+        if x < 0.5:
+            return "🙂 还不错"
+        if x < 1:
+            return "😐 开始漫长"
+        if x < 2:
+            return "😶 有点久了"
+        return "😵 已经放空"
 
     df["Time_Slot"] = df["Start_Hour"].apply(time_slot)
-    df["Delay_Level"] = df["Waiting_Time_hr"].apply(delay_level)
+    df["Wait_Level"] = df["Waiting_Time_hr"].apply(wait_level)
     df["Severe_Delay"] = df["Waiting_Time_hr"] > 1
     df["Record_Label"] = df["Person"] + "｜" + df["Date_Display"] + "｜" + df["Start_Time"].astype(str) + "-" + df["End_Time"].astype(str)
     return df
@@ -202,12 +226,6 @@ def fmt_hr(x):
     if pd.isna(x):
         return "-"
     return f"{x:.2f}h"
-
-
-def fmt_min(x):
-    if pd.isna(x):
-        return "-"
-    return f"{int(round(x))}min"
 
 
 def section(title, desc=""):
@@ -235,32 +253,19 @@ def snark(text):
     st.markdown(f'<div class="snark">{text}</div>', unsafe_allow_html=True)
 
 
-def rank_snark(row, rank):
+def rank_snark(row):
     wait = row["Waiting_Time_hr"]
-    person = row["Person"]
-    date = row["Date_Display"]
     if wait >= 3:
-        return f"{date} 这一场直接封神，等到 {wait:.1f} 小时，已经可以给等待颁一个全勤奖。"
+        return "这一次多等了 3 小时，已经可以完整经历：看时间 → 刷手机 → 再看时间 → 接受现实。"
     if wait >= 2.2:
-        return f"这不是互动，这是大型耐力赛。{person} 的时间黑洞属性在这一场非常明显。"
+        return "这一场属于等待界的加长版，时间长到奶茶都可以从冰变常温。"
     if wait >= 2:
-        return "一小时活动，两小时等待，时间管理反向教学。"
+        return "这个时长已经很有存在感，足够让人把附近路线都研究一遍。"
     if wait >= 1.5:
-        return "已经进入‘我是不是应该先去吃个饭’的心理阶段。"
-    return "虽然没到崩溃区，但也足够让人把手机电量刷掉一截。"
-
-
-def movie_equiv(hours):
-    return hours / 2
-
-def milk_tea_equiv(hours):
-    return hours * 2
-
-def song_equiv(hours):
-    return hours * 60 / 4
-
-def drama_equiv(hours):
-    return hours * 60 / 45
+        return "已经进入‘我是不是可以先去转一圈再回来’的心理阶段。"
+    if wait >= 1:
+        return "超过一小时，属于会让人开始认真计算手机电量的程度。"
+    return "虽然没到大场面，但也足够让人多看几次时间。"
 
 
 def plot_layout(fig, height=360):
@@ -279,18 +284,15 @@ def plot_layout(fig, height=360):
 
 raw = load_data()
 
-# -----------------------------
-# Hero
-# -----------------------------
 st.markdown(
     """
     <div class="hero">
       <div class="hero-title">我到底等了多久？</div>
-      <div class="hero-subtitle">线下互动延迟研究报告｜一份不严肃但很认真的排队受害者数据分析</div>
+      <div class="hero-subtitle">线下互动等待实录｜一份不完全理性、但很真实的等待小报告</div>
       <div class="pill-row">
         <span class="pill">⏳ 等待宇宙</span>
         <span class="pill">💗 小红书风</span>
-        <span class="pill">🤡 吐槽友好</span>
+        <span class="pill">🤡 轻吐槽</span>
         <span class="pill">📱 手机优先</span>
       </div>
     </div>
@@ -298,9 +300,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# -----------------------------
-# Filters
-# -----------------------------
+st.markdown(
+    """
+    <div class="note-box">
+    <b>小说明：</b><br>
+    这里的“等待时间”，不是正常排队要等的时间，<br>
+    而是“感觉差不多该轮到你了，但又没轮到”的那一段 🙂<br><br>
+    简单说：都是那些开始反复看时间的瞬间。
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 with st.container():
     st.markdown("### 🎛️ 先调一下你的等待视角")
     c1, c2 = st.columns(2)
@@ -308,15 +319,19 @@ with st.container():
         person = st.multiselect("互动对象", sorted(raw["Person"].dropna().unique()), default=sorted(raw["Person"].dropna().unique()))
         session_type = st.multiselect("互动类型", sorted(raw["Session_Type"].dropna().unique()), default=sorted(raw["Session_Type"].dropna().unique()))
     with c2:
-        delay_order = ["正常区", "微崩区", "中崩区", "大崩区"]
-        delay_level = st.multiselect("等待等级", delay_order, default=delay_order)
+        level_order = ["🙂 还不错", "😐 开始漫长", "😶 有点久了", "😵 已经放空"]
+        wait_level = st.multiselect("等待等级", level_order, default=level_order)
         slot_order = ["午场", "下午场", "晚场", "未知"]
-        time_slot = st.multiselect("时间段", [x for x in slot_order if x in raw["Time_Slot"].unique()], default=[x for x in slot_order if x in raw["Time_Slot"].unique()])
+        time_slot = st.multiselect(
+            "时间段",
+            [x for x in slot_order if x in raw["Time_Slot"].unique()],
+            default=[x for x in slot_order if x in raw["Time_Slot"].unique()],
+        )
 
 filtered = raw[
     raw["Person"].isin(person)
     & raw["Session_Type"].isin(session_type)
-    & raw["Delay_Level"].isin(delay_level)
+    & raw["Wait_Level"].isin(wait_level)
     & raw["Time_Slot"].isin(time_slot)
 ].copy()
 
@@ -324,17 +339,11 @@ if filtered.empty:
     st.warning("这个筛选组合下没有数据。换个筛选条件看看，别把等待宇宙筛没了。")
     st.stop()
 
-# -----------------------------
-# 1. Opening / intro
-# -----------------------------
-section("1｜欢迎来到线下互动等待宇宙", "这里没有商业机密，只有排队、延迟、等待，以及一点点崩溃。")
-snark("本报告的核心研究问题：我到底是去互动的，还是去练习耐心的？")
+section("1｜欢迎来到线下互动等待宇宙", "一开始只是觉得有点久，后来发现，好像每次都不短。")
+snark("本报告的核心问题：我到底是去互动的，还是去顺便练习时间管理的？")
 end_section()
 
-# -----------------------------
-# 2. KPI overview
-# -----------------------------
-section("2｜今日受害者总览", "先看大数字。每一个指标背后，都是一次‘快到了吧’的错觉。")
+section("2｜今日等待总览", "先看大数字。每一个指标背后，都是一次“应该差不多了吧”的循环。")
 mean_wait = filtered["Waiting_Time_hr"].mean()
 max_wait = filtered["Waiting_Time_hr"].max()
 min_wait = filtered["Waiting_Time_hr"].min()
@@ -344,111 +353,82 @@ total_wait = filtered["Waiting_Time_hr"].sum()
 
 m1, m2 = st.columns(2)
 with m1:
-    metric_card("平均等待时间", fmt_hr(mean_wait), "平均每次都要多等一段时间，属于‘已经习惯但还是会无语’的程度。")
+    metric_card("平均等待时间", fmt_hr(mean_wait), "平均每次多等了这么久，属于那种：明明已经提前算好了时间，结果还是不够用的情况。")
 with m2:
-    metric_card("最惨一次", fmt_hr(max_wait), "不是等待，是一个完整下午的修行。")
+    metric_card("最久一次", fmt_hr(max_wait), "最多多等了这么久，时间长到可以从“马上就到”变成“那也不着急了”。")
 m3, m4 = st.columns(2)
 with m3:
-    metric_card("最快一次", fmt_hr(min_wait), "原来准时真的存在，只是比较稀有。")
+    metric_card("最快一次", fmt_hr(min_wait), "也有几次几乎没多等，说明“刚刚好轮到”这种事，确实发生过。")
 with m4:
-    metric_card("超过 1 小时", f"{over_1} 次", f"占当前筛选数据的 {over_1_rate:.0%}，每一次都是对热爱的压力测试。")
+    metric_card("超过 1 小时", f"{over_1} 次", f"占当前筛选数据的 {over_1_rate:.0%}，基本经历了好几轮“应该差不多了吧”的循环。")
 end_section()
 
-# -----------------------------
-# 3. Person comparison
-# -----------------------------
-section("3｜人物对比：谁更容易让我等？", "讲李貌 vs 沫宸，看看谁更像本阶段‘时间黑洞’候选人。")
-by_person = filtered.groupby("Person", as_index=False).agg(
-    平均等待小时=("Waiting_Time_hr", "mean"),
-    最大等待小时=("Waiting_Time_hr", "max"),
-    超过一小时比例=("Severe_Delay", "mean"),
-    场次数=("Waiting_Time_hr", "count"),
-)
-fig = px.bar(by_person, x="Person", y="平均等待小时", color="Person", text=by_person["平均等待小时"].map(lambda x: f"{x:.2f}h"), title="平均等待时间对比")
-fig.update_traces(textposition="outside")
-st.plotly_chart(plot_layout(fig), use_container_width=True)
-if len(by_person) >= 2:
-    worst = by_person.sort_values("平均等待小时", ascending=False).iloc[0]
-    snark(f"从当前筛选数据看，<b>{worst['Person']}</b> 是本阶段‘时间黑洞’候选人，平均等待 <b>{worst['平均等待小时']:.2f} 小时</b>。见到本人之前，先通过耐心测试。")
-else:
-    one = by_person.iloc[0]
-    snark(f"当前只看 <b>{one['Person']}</b>：平均等待 <b>{one['平均等待小时']:.2f} 小时</b>，样本数 {int(one['场次数'])} 场。")
-end_section()
-
-# -----------------------------
-# 4. Top 5 worst waits
-# -----------------------------
-section("4｜最惨排行榜 Top 5", "这几场建议单独载入史册：不是互动，是耐力项目。")
+section("3｜等待时间 Top 5", "都有点记忆点。Top 5 的共同特点是：等的时候很长，回头看又有点好笑。")
 top5 = filtered.sort_values("Waiting_Time_hr", ascending=False).head(5).reset_index(drop=True)
 for i, row in top5.iterrows():
+    queue_text = "无" if pd.isna(row["Queue_Number"]) else str(int(row["Queue_Number"]))
     st.markdown(
         f"""
         <div class="rank-card">
           <div class="rank-title">Top {i+1}｜{row['Person']}｜{row['Date_Display']}｜等待 {row['Waiting_Time_hr']:.2f}h</div>
-          <div class="rank-meta">{row['Start_Time']} - {row['End_Time']}｜{row['Session_Type']}｜领到的号：{'' if pd.isna(row['Queue_Number']) else int(row['Queue_Number'])}｜备注：{row['Notes'] or '无'}</div>
-          <div class="rank-snark">{rank_snark(row, i+1)}</div>
+          <div class="rank-meta">{row['Start_Time']} - {row['End_Time']}｜{row['Session_Type']}｜领到的号：{queue_text}｜备注：{row['Notes'] or '无'}</div>
+          <div class="rank-snark">{rank_snark(row)}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 end_section()
 
-# -----------------------------
-# 5. Delay level distribution
-# -----------------------------
-section("5｜等待等级分布", "把等待分成四个区：正常区、微崩区、中崩区、大崩区。")
-level_order = ["正常区", "微崩区", "中崩区", "大崩区"]
-level_df = filtered.groupby(["Delay_Level", "Person"], as_index=False).size()
-level_df["Delay_Level"] = pd.Categorical(level_df["Delay_Level"], categories=level_order, ordered=True)
-level_df = level_df.sort_values("Delay_Level")
-fig = px.bar(level_df, x="Delay_Level", y="size", color="Person", barmode="group", title="等待等级分布")
+section("4｜等待等级分布", "把等待分成四个状态：还不错、开始漫长、有点久了、已经放空。")
+level_df = filtered.groupby(["Wait_Level", "Person"], as_index=False).size()
+level_df["Wait_Level"] = pd.Categorical(level_df["Wait_Level"], categories=level_order, ordered=True)
+level_df = level_df.sort_values("Wait_Level")
+fig = px.bar(level_df, x="Wait_Level", y="size", color="Person", barmode="group", title="等待等级分布")
 st.plotly_chart(plot_layout(fig), use_container_width=True)
-snark("0–0.5h 是正常区，0.5–1h 是微崩区，1–2h 是中崩区，2h+ 是大崩区。超过 2 小时，建议自动解锁‘等待大师’称号。")
+snark("大部分时间其实还在可接受范围，但偶尔也会进入一种“我已经不知道自己在等什么了”的状态。")
 end_section()
 
-# -----------------------------
-# 6. Queue number metaphysics
-# -----------------------------
-section("6｜排队号玄学研究", "排队号越大，真的越惨吗？理论上每个号 3 分钟，现实中每个号可能附带随机剧情。")
-queue_df = filtered.dropna(subset=["Queue_Number"]).copy()
-if not queue_df.empty:
-    fig = px.scatter(
-        queue_df,
-        x="Queue_Number",
-        y="Waiting_Time_hr",
-        color="Person",
-        symbol="Session_Type",
-        size="Waiting_Time_min",
-        hover_data=["Date_Display", "Start_Time", "End_Time", "Actual_Time", "Notes"],
-        trendline="ols" if len(queue_df) >= 3 else None,
-        title="领到的号 vs 等待时间",
-    )
-    st.plotly_chart(plot_layout(fig), use_container_width=True)
-    corr = queue_df[["Queue_Number", "Waiting_Time_hr"]].corr().iloc[0, 1] if len(queue_df) >= 2 else float("nan")
-    snark(f"当前筛选下，排队号和等待时间的相关系数约为 <b>{corr:.2f}</b>。排队号只是开始，等待时间才是命运。")
-else:
-    st.info("当前筛选下没有可用的排队号数据。")
+section("5｜总等待时间换算器", "把等待时间换成更有画面感的单位，方便发给朋友一起沉默三秒。")
+days = total_wait / 24
+movies = total_wait / 2
+milk_tea = total_wait / 0.75
+mall_laps = total_wait / 0.35
+c1, c2 = st.columns(2)
+with c1:
+    metric_card("累计等待", fmt_hr(total_wait), "这是当前筛选条件下，你贡献给等待宇宙的总时长。")
+with c2:
+    metric_card("约等于", f"{days:.2f} 天", "如果换成天数，也是一段很完整的时间了。")
+c3, c4 = st.columns(2)
+with c3:
+    metric_card("约等于电影", f"{movies:.1f} 部", "按每部电影 2 小时粗略换算。")
+with c4:
+    metric_card("约等于奶茶变常温", f"{milk_tea:.0f} 杯", "按一杯冰奶茶 45 分钟逐渐失去灵魂粗略换算。")
+snark(
+    f"""
+    到目前为止，<br>
+    你一共多等了 <b>{total_wait:.2f} 小时</b><br><br>
+    ≈ <b>{days:.2f}</b> 天<br>
+    ≈ <b>{movies:.1f}</b> 部电影<br>
+    ≈ <b>{milk_tea:.0f}</b> 杯奶茶从冰变常温的时间<br>
+    ≈ 在商场里走到不知道第 <b>{mall_laps:.0f}</b> 圈的程度<br><br>
+    （也≈ 一些本可以更早见到他们的时间）
+    """
+)
 end_section()
 
-# -----------------------------
-# 7. Single vs double
-# -----------------------------
-section("7｜单人 vs 双人研究", "双人互动听起来更幸福，但排队体验可能也更考验心态。")
+section("6｜单人 vs 双人研究", "人多，真的会更慢吗？")
 by_type = filtered.groupby("Session_Type", as_index=False).agg(平均等待小时=("Waiting_Time_hr", "mean"), 场次数=("Waiting_Time_hr", "count"))
 fig = px.bar(by_type, x="Session_Type", y="平均等待小时", color="Session_Type", text=by_type["平均等待小时"].map(lambda x: f"{x:.2f}h"), title="单人/双人平均等待对比")
 fig.update_traces(textposition="outside")
 st.plotly_chart(plot_layout(fig), use_container_width=True)
 if len(by_type) > 1:
     slower = by_type.sort_values("平均等待小时", ascending=False).iloc[0]
-    snark(f"当前数据里，<b>{slower['Session_Type']}</b> 平均等待更久，约 <b>{slower['平均等待小时']:.2f} 小时</b>。当然样本量也要看，玄学不能完全替代统计学。")
+    snark(f"直觉告诉我们：人多应该更热闹。数据告诉我们：<b>{slower['Session_Type']}</b> 的平均等待更久一点。毕竟两个人，总比一个人更难结束对话一点点。")
 else:
     snark("当前筛选下只有一种互动类型，所以暂时不能公平比较。")
 end_section()
 
-# -----------------------------
-# 8. Timeline
-# -----------------------------
-section("8｜我的等待情绪走势图", "每一个点，都是一次‘是不是快到了’的心理波动。")
+section("7｜我的等待情绪走势图", "每一个点，都是一次“快到了吧”的判断。有的对了，有的……再等等。")
 timeline = filtered.sort_values(["Date_dt", "Start_dt"])
 fig = px.line(
     timeline,
@@ -463,45 +443,109 @@ fig.update_xaxes(tickformat="%m/%d")
 st.plotly_chart(plot_layout(fig), use_container_width=True)
 end_section()
 
-# -----------------------------
-# 9. Total wait converter
-# -----------------------------
-section("9｜总等待时间换算器", "把等待时间换成更有画面感的单位，方便发给朋友一起沉默。")
-movie = movie_equiv(total_wait)
-tea = milk_tea_equiv(total_wait)
-songs = song_equiv(total_wait)
-drama = drama_equiv(total_wait)
-c1, c2 = st.columns(2)
-with c1:
-    metric_card("累计等待", fmt_hr(total_wait), "这是当前筛选条件下，你贡献给等待宇宙的总时长。")
-with c2:
-    metric_card("约等于电影", f"{movie:.1f} 部", "按每部电影 2 小时粗略换算。")
-c3, c4 = st.columns(2)
-with c3:
-    metric_card("约等于奶茶", f"{tea:.0f} 杯", "按每小时可以喝 2 杯奶茶的精神速度换算。")
-with c4:
-    metric_card("约等于歌曲", f"{songs:.0f} 首", "按每首歌 4 分钟计算，足够开一场私人歌单马拉松。")
-snark(f"你累计等待了 <b>{total_wait:.2f} 小时</b>，约等于看完 <b>{movie:.1f}</b> 部电影、刷完 <b>{drama:.1f}</b> 集综艺，或者听完 <b>{songs:.0f}</b> 首歌。数据会说话，等待会沉默。")
+section("8｜人物对比：是不是哪里不太对？", "后来越看越觉得不太对：这些等待，真的只是时间问题吗？")
+by_person = filtered.groupby("Person", as_index=False).agg(
+    平均等待小时=("Waiting_Time_hr", "mean"),
+    最大等待小时=("Waiting_Time_hr", "max"),
+    超过一小时比例=("Severe_Delay", "mean"),
+    波动程度=("Waiting_Time_hr", "std"),
+    场次数=("Waiting_Time_hr", "count"),
+)
+by_person["波动程度"] = by_person["波动程度"].fillna(0)
+
+if len(by_person) >= 2:
+    avg_winner = by_person.sort_values("平均等待小时", ascending=False).iloc[0]
+    stable_winner = by_person.sort_values("波动程度", ascending=True).iloc[0]
+    snark(
+        f"""
+        如果一定要总结的话：<br><br>
+        更容易让人多等一点的是：<b>{avg_winner['Person']}</b><br>
+        更稳定一点的是：<b>{stable_winner['Person']}</b><br><br>
+        一个是“偶尔会突然慢很多”，一个是“节奏更可预期一点”。
+        """
+    )
+
+pcols = st.columns(2)
+for idx, (_, row) in enumerate(by_person.sort_values("Person").iterrows()):
+    name = row["Person"]
+    if "讲" in name:
+        tag = "稳定输出型"
+        text = "不会特别离谱，但基本不会完全不慢。属于那种：“今天应该也差不多会等一下”的类型。"
+    elif "沫" in name:
+        tag = "随机波动型"
+        text = "平时还好，但偶尔会直接进入“时间加长模式”。有一点点开盲盒的感觉。"
+    else:
+        tag = "等待宇宙成员"
+        text = "样本不多，但每一条记录都有自己的故事。"
+    with pcols[idx % 2]:
+        st.markdown(
+            f"""
+            <div class="persona-card">
+              <div class="persona-name">👤 {name}</div>
+              <div class="persona-tag">{tag}</div>
+              <div class="persona-text">
+                平均等待：<b>{row['平均等待小时']:.2f}h</b><br>
+                最久一次：<b>{row['最大等待小时']:.2f}h</b><br>
+                超过 1 小时比例：<b>{row['超过一小时比例']:.0%}</b><br><br>
+                {text}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+fig = px.bar(
+    by_person,
+    x="Person",
+    y="平均等待小时",
+    color="Person",
+    text=by_person["平均等待小时"].map(lambda x: f"{x:.2f}h"),
+    title="谁更容易让人多等一点",
+)
+fig.update_traces(textposition="outside")
+st.plotly_chart(plot_layout(fig), use_container_width=True)
+
+compare_long = by_person.melt(
+    id_vars="Person",
+    value_vars=["最大等待小时", "波动程度"],
+    var_name="指标",
+    value_name="小时",
+)
+fig = px.bar(compare_long, x="指标", y="小时", color="Person", barmode="group", title="谁更容易突然变久 / 谁更稳定一点")
+st.plotly_chart(plot_layout(fig), use_container_width=True)
+
+fig = px.bar(
+    by_person,
+    x="Person",
+    y="超过一小时比例",
+    color="Person",
+    text=by_person["超过一小时比例"].map(lambda x: f"{x:.0%}"),
+    title="超过 1 小时比例对比",
+)
+fig.update_traces(textposition="outside")
+fig.update_yaxes(tickformat=".0%")
+st.plotly_chart(plot_layout(fig), use_container_width=True)
 end_section()
 
-# -----------------------------
-# 10. Final card
-# -----------------------------
-section("10｜本次等待研究结论", "最后，用一张适合截图的结论卡收尾。")
-most_common_level = filtered["Delay_Level"].value_counts().idxmax()
-final_line = f"当前最常见的等待等级是 <b>{most_common_level}</b>，平均等待 <b>{mean_wait:.2f} 小时</b>。"
+section("9｜本次等待小结", "最后，用一张适合截图的结论卡收尾。")
+most_common_level = filtered["Wait_Level"].value_counts().idxmax()
+final_line = f"当前最常见的等待状态是 <b>{most_common_level}</b>，平均等待 <b>{mean_wait:.2f} 小时</b>。"
 st.markdown(
     f"""
     <div class="final-card">
-    综合来看，这份数据证明了一件事：<br>
-    <b>爱可以让人排队，但数据会记录一切。</b><br><br>
+    综合来看，这份数据证明了一件事：<br><br>
+    <b>爱可以让人排队，<br>
+    但数据会记录一切。</b><br><br>
     {final_line}<br><br>
-    如果下次还要去，我建议：<br>
-    1. 带充电宝；<br>
-    2. 带吃的；<br>
-    3. 不要太相信预计时间；<br>
-    4. 提前做好“等待 1 小时起步”的心理建设。<br><br>
-    研究结论：互动是短暂的，等待是漫长的，但截图发朋友吐槽是永恒的。
+    不过好像也还好，<br>
+    毕竟最后，<br>
+    还是等到了。<br><br>
+    但如果真的要说的话，<br>
+    这些时间，<br>
+    也不只是“等”。<br><br>
+    它们更像是：<br>
+    一次次在人群里慢慢靠近的过程。<br><br>
+    所以好像也没有那么浪费。
     </div>
     """,
     unsafe_allow_html=True,
@@ -509,7 +553,11 @@ st.markdown(
 end_section()
 
 with st.expander("📄 查看当前筛选后的原始数据"):
-    show_cols = ["Person", "Date_Display", "Start_Time", "End_Time", "Session_Type", "Queue_Number", "Actual_Time", "Expected_Time", "Waiting_Time_hr", "Waiting_Time_min", "Delay_Level", "Time_Slot", "Notes"]
-    st.dataframe(filtered[show_cols].rename(columns={"Date_Display":"Date"}), use_container_width=True, hide_index=True)
+    show_cols = [
+        "Person", "Date_Display", "Start_Time", "End_Time", "Session_Type",
+        "Queue_Number", "Actual_Time", "Expected_Time", "Waiting_Time_hr",
+        "Waiting_Time_min", "Wait_Level", "Time_Slot", "Notes"
+    ]
+    st.dataframe(filtered[show_cols].rename(columns={"Date_Display": "Date", "Wait_Level": "等待等级"}), use_container_width=True, hide_index=True)
 
 st.caption("Made for fun. 非官方、非严肃、但每一分钟都是真实等待。")
